@@ -19,3 +19,198 @@ body {
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
 }
+
+/* =========================================================================
+ * POKÉMON TCG POCKET CINEMATIC ANIMATIONS
+ * ========================================================================= */
+
+@keyframes screenShake {
+  0% { transform: translate(0, 0) rotate(0deg); }
+  15% { transform: translate(-3px, 2px) rotate(-0.5deg); }
+  30% { transform: translate(3px, -2px) rotate(0.5deg); }
+  45% { transform: translate(-2px, -2px) rotate(-0.3deg); }
+  60% { transform: translate(2px, 1px) rotate(0.3deg); }
+  75% { transform: translate(-1px, 1px) rotate(-0.1deg); }
+  100% { transform: translate(0, 0) rotate(0deg); }
+}
+
+.animate-screen-shake {
+  animation: screenShake 0.45s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
+
+@keyframes tearFlyOff {
+  0% {
+    transform: translate3d(0, 0, 10px) rotate(0deg) scale(1);
+    opacity: 1;
+  }
+  30% {
+    transform: translate3d(40px, -25px, 35px) rotate(12deg) scale(1.02);
+    opacity: 0.95;
+  }
+  100% {
+    transform: translate3d(140px, -110px, 80px) rotate(38deg) scale(0.8);
+    opacity: 0;
+  }
+}
+
+.animate-tear-flyoff {
+  animation: tearFlyOff 0.75s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes cardsEmerge {
+  0% {
+    transform: translate3d(0, 70px, -10px) scale(0.85);
+    opacity: 0;
+  }
+  40% {
+    opacity: 0.8;
+  }
+  100% {
+    transform: translate3d(0, -45px, 20px) scale(1.02);
+    opacity: 1;
+  }
+}
+
+.animate-cards-emerge {
+  animation: cardsEmerge 0.85s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes beamBurst {
+  0% {
+    height: 0px;
+    opacity: 0;
+    transform: scaleX(0.4);
+  }
+  35% {
+    height: 180px;
+    opacity: 1;
+    transform: scaleX(1.2);
+  }
+  100% {
+    height: 220px;
+    opacity: 0;
+    transform: scaleX(1.5);
+  }
+}
+
+.animate-beam-burst {
+  animation: beamBurst 0.9s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes suspensePulseGlow {
+  0%, 100% {
+    box-shadow: 0 0 25px rgba(255, 215, 0, 0.5), inset 0 0 15px rgba(255, 215, 0, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 50px rgba(255, 215, 0, 0.9), 0 0 80px rgba(245, 158, 11, 0.6), inset 0 0 25px rgba(255, 255, 255, 0.5);
+  }
+}
+
+.animate-suspense-crown {
+  animation: suspensePulseGlow 1.4s ease-in-out infinite;
+}
+
+@keyframes suspensePulseCyan {
+  0%, 100% {
+    box-shadow: 0 0 25px rgba(56, 189, 248, 0.5), inset 0 0 15px rgba(56, 189, 248, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 55px rgba(56, 189, 248, 0.95), 0 0 85px rgba(129, 140, 248, 0.6), inset 0 0 25px rgba(255, 255, 255, 0.5);
+  }
+}
+
+.animate-suspense-immersive {
+  animation: suspensePulseCyan 1.4s ease-in-out infinite;
+}
+
+@keyframes suspensePulseMagenta {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(244, 63, 94, 0.5), inset 0 0 12px rgba(244, 63, 94, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 45px rgba(244, 63, 94, 0.85), 0 0 70px rgba(236, 72, 153, 0.5), inset 0 0 20px rgba(255, 255, 255, 0.4);
+  }
+}
+
+.animate-suspense-rare {
+  animation: suspensePulseMagenta 1.4s ease-in-out infinite;
+}
+
+@keyframes lightSheenSweep {
+  0% {
+    transform: translateX(-150%) skewX(-25deg);
+    opacity: 0;
+  }
+  30% {
+    opacity: 0.85;
+  }
+  70% {
+    opacity: 0.85;
+  }
+  100% {
+    transform: translateX(250%) skewX(-25deg);
+    opacity: 0;
+  }
+}
+
+.animate-sheen-sweep {
+  animation: lightSheenSweep 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+
+@keyframes packIdleHover {
+  0%, 100% {
+    transform: translateY(0px) rotateX(0deg);
+  }
+  50% {
+    transform: translateY(-8px) rotateX(2deg);
+  }
+}
+
+.animate-pack-idle {
+  animation: packIdleHover 3.8s ease-in-out infinite;
+}
+
+@keyframes cardFlickOutLeft {
+  0% {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(-180%, 40px, -50px) rotate(-28deg);
+    opacity: 0;
+  }
+}
+
+.animate-card-flick-left {
+  animation: cardFlickOutLeft 0.38s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes cardFlickOutRight {
+  0% {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(180%, 40px, -50px) rotate(28deg);
+    opacity: 0;
+  }
+}
+
+.animate-card-flick-right {
+  animation: cardFlickOutRight 0.38s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes cardSpringIn {
+  0% {
+    transform: translate3d(0, 35px, -30px) scale(0.92);
+    opacity: 0.6;
+  }
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 1;
+  }
+}
+
+.animate-card-spring-in {
+  animation: cardSpringIn 0.32s cubic-bezier(0.18, 0.89, 0.32, 1.28) forwards;
+}

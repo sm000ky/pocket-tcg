@@ -6,7 +6,16 @@ import { BoosterPack3D } from './BoosterPack3D';
 import { HoloCard3D } from './HoloCard3D';
 import { pocketAudio } from '../lib/audio';
 import confetti from 'canvas-confetti';
-import { RotateCcw, BookOpen, Check } from 'lucide-react';
+import {
+  RotateCcw,
+  BookOpen,
+  Check,
+  ArrowRight,
+  Trophy,
+  Sparkles,
+  Layers,
+  Sparkle
+} from 'lucide-react';
 
 interface PackOpeningStageProps {
   onAddCardsToCollection: (cards: PokemonCardData[]) => void;
@@ -14,7 +23,9 @@ interface PackOpeningStageProps {
   onSelectImmersiveCard: (card: PokemonCardData) => void;
 }
 
-type StagePhase = 'select_pack' | 'inspect_pack' | 'revealing_cards' | 'summary';
+type StagePhase = 'select_pack' | 'inspect_pack' | 'stack_reveal' | 'summary';
+
+const POKEBALL_BACK_URL = 'https://assets.tcgdex.net/univ/tcgp/back.webp';
 
 export const PackOpeningStage: React.FC<PackOpeningStageProps> = ({
   onAddCardsToCollection,
@@ -24,6 +35,11 @@ export const PackOpeningStage: React.FC<PackOpeningStageProps> = ({
   const [selectedPackId, setSelectedPackId] = useState<BoosterPackId>('charizard');
   const [phase, setPhase] = useState<StagePhase>('select_pack');
   const [drawnCards, setDrawnCards] = useState<DrawnCard[]>([]);
+  const [currentCardIndex, setCurrentCardIndex] = useState<number>(0);
+  const [isOpeningPack, setIsOpeningPack] = useState<boolean>(false);
+  const [celebrationBanner, setCelebrationBanner] = useState<string | null>(null);
+  const [flickAnim, setFlickAnim] = useState<'left' | 'right' | null>(null);
+  const [isScreenShaking, setIsScreenShaking] = useState<boolean>(false);
 
   const activePack = BOOSTER_PACKS[selectedPackId];
 
@@ -34,61 +50,87 @@ export const PackOpeningStage: React.FC<PackOpeningStageProps> = ({
   };
 
   const handleOpenPack = () => {
-    // Generate 5 cards
+    setIsOpeningPack(true);
     const newCards = generateBoosterPack(selectedPackId);
     setDrawnCards(newCards);
+    setCurrentCardIndex(0);
+    setIsOpeningPack(false);
     pocketAudio.playCardSlide();
-    setPhase('revealing_cards');
-
-    // Add to collection
+    setPhase('stack_reveal');
     onAddCardsToCollection(newCards.map((c) => c.card));
   };
 
-  const handleFlipCard = (index: number) => {
-    if (drawnCards[index].isRevealed) return;
+  // Flip currently focused card in hand
+  const handleFlipCurrentCard = () => {
+    if (drawnCards.length === 0) return;
+    const current = drawnCards[currentCardIndex];
+    if (current.isRevealed) return;
 
     const updated = [...drawnCards];
-    updated[index].isRevealed = true;
+    updated[currentCardIndex].isRevealed = true;
     setDrawnCards(updated);
 
-    const card = updated[index].card;
+    const card = current.card;
 
-    // Trigger audio & confetti for special rarities
+    // Trigger explosive audio, haptics, screen shake, and confetti based on rarity
     if (card.isCrown) {
+      setIsScreenShaking(true);
+      setTimeout(() => setIsScreenShaking(false), 500);
       pocketAudio.playCrownFanfare();
+      setCelebrationBanner(`👑 CROWN GOLD RARE · ${card.name}!`);
       confetti({
-        particleCount: 120,
-        spread: 90,
-        origin: { y: 0.6 },
+        particleCount: 180,
+        spread: 110,
+        origin: { y: 0.5 },
         colors: ['#FFD700', '#FFA500', '#FFFFFF', '#FFF8DC'],
       });
     } else if (card.isImmersive) {
+      setIsScreenShaking(true);
+      setTimeout(() => setIsScreenShaking(false), 500);
       pocketAudio.playCrownFanfare();
+      setCelebrationBanner(`★★★ IMMERSIVE RARE · ${card.name}!`);
       confetti({
-        particleCount: 100,
-        spread: 80,
-        origin: { y: 0.6 },
+        particleCount: 140,
+        spread: 95,
+        origin: { y: 0.5 },
         colors: ['#38BDF8', '#818CF8', '#C084FC', '#FFFFFF'],
       });
     } else if (card.rarityRank >= 4) {
+      setIsScreenShaking(true);
+      setTimeout(() => setIsScreenShaking(false), 450);
+      pocketAudio.playImpactBoom();
       pocketAudio.playHoloSparkle();
+      setCelebrationBanner(`★ ${card.rarity.toUpperCase()} · ${card.name}!`);
       confetti({
-        particleCount: 50,
-        spread: 60,
-        origin: { y: 0.6 },
-        colors: ['#F43F5E', '#FB7185', '#FDA4AF'],
+        particleCount: 80,
+        spread: 75,
+        origin: { y: 0.5 },
+        colors: ['#F43F5E', '#FB7185', '#FDA4AF', '#F59E0B'],
       });
-    }
-
-    // Check if all cards revealed
-    if (updated.every((c) => c.isRevealed)) {
-      setTimeout(() => {
-        setPhase('summary');
-      }, 1200);
+    } else {
+      pocketAudio.playCardFlip();
     }
   };
 
-  const handleRevealAll = () => {
+  // Advance to next card in the 5-card stack with realistic flick physics
+  const handleAdvanceCard = (direction: 'left' | 'right' = 'right') => {
+    if (flickAnim) return; // Prevent double trigger
+    pocketAudio.playCardSlide();
+    setFlickAnim(direction);
+    setCelebrationBanner(null);
+
+    setTimeout(() => {
+      setFlickAnim(null);
+      if (currentCardIndex < drawnCards.length - 1) {
+        setCurrentCardIndex((prev) => prev + 1);
+      } else {
+        // All 5 cards seen, transition to summary
+        setPhase('summary');
+      }
+    }, 280);
+  };
+
+  const handleRevealAllInstant = () => {
     pocketAudio.playHoloSparkle();
     const updated = drawnCards.map((c) => ({ ...c, isRevealed: true }));
     setDrawnCards(updated);
@@ -99,10 +141,25 @@ export const PackOpeningStage: React.FC<PackOpeningStageProps> = ({
     pocketAudio.playClick();
     setPhase('select_pack');
     setDrawnCards([]);
+    setCurrentCardIndex(0);
+    setCelebrationBanner(null);
+    setFlickAnim(null);
   };
 
+  // Determine best card pull of the pack
+  const bestCard = [...drawnCards].sort(
+    (a, b) => b.card.rarityRank - a.card.rarityRank
+  )[0]?.card;
+
+  const currentDrawn = drawnCards[currentCardIndex];
+  const remainingCardsCount = Math.max(0, drawnCards.length - 1 - currentCardIndex);
+
   return (
-    <div className="w-full max-w-6xl mx-auto flex flex-col items-center justify-center min-h-[70vh] py-6 px-4">
+    <div
+      className={`w-full max-w-6xl mx-auto flex flex-col items-center justify-center min-h-[78vh] py-6 px-4 ${
+        isScreenShaking ? 'animate-screen-shake' : ''
+      }`}
+    >
       {/* ===================================================================
        * PHASE 1: SELECT BOOSTER PACK
        * =================================================================== */}
@@ -116,7 +173,8 @@ export const PackOpeningStage: React.FC<PackOpeningStageProps> = ({
               Choose Your Booster Pack
             </h1>
             <p className="text-xs sm:text-sm font-mono text-neutral-400">
-              Each pack contains 5 official cards with guaranteed rare foils, illustration rares, or elusive 3-star immersives.
+              Each pack contains 5 official cards with guaranteed rare foils,
+              illustration rares, or elusive 3-star immersives.
             </p>
           </div>
 
@@ -133,7 +191,6 @@ export const PackOpeningStage: React.FC<PackOpeningStageProps> = ({
                     boxShadow: `0 10px 30px ${pack.glowColor}`,
                   }}
                 >
-                  {/* Sheen backdrop */}
                   <div
                     className="absolute inset-0 opacity-20 group-hover:opacity-40 transition-opacity"
                     style={{
@@ -141,7 +198,6 @@ export const PackOpeningStage: React.FC<PackOpeningStageProps> = ({
                     }}
                   />
 
-                  {/* Artwork Preview */}
                   <div className="relative w-44 h-60 rounded-xl overflow-hidden shadow-xl border border-white/20 mb-4">
                     <img
                       src={pack.coverImage}
@@ -178,15 +234,15 @@ export const PackOpeningStage: React.FC<PackOpeningStageProps> = ({
       )}
 
       {/* ===================================================================
-       * PHASE 2: 3D PACK RIP INSPECTOR
+       * PHASE 2: 3D PACK RIP INSPECTOR (BREWEK PACK)
        * =================================================================== */}
       {phase === 'inspect_pack' && (
         <div className="flex flex-col items-center space-y-6 animate-in zoom-in-95 duration-300">
           <div className="text-center">
             <span className="text-[10px] font-mono text-neutral-400 uppercase tracking-widest block">
-              PREPARING BOOSTER
+              AUTHENTIC FOIL POUCH
             </span>
-            <h2 className="text-2xl font-bold text-white tracking-wide">
+            <h2 className="text-2xl sm:text-3xl font-bold text-white tracking-wide">
               {activePack.name}
             </h2>
           </div>
@@ -194,6 +250,7 @@ export const PackOpeningStage: React.FC<PackOpeningStageProps> = ({
           <BoosterPack3D
             pack={activePack}
             onOpenPack={handleOpenPack}
+            isOpening={isOpeningPack}
           />
 
           <button
@@ -206,86 +263,206 @@ export const PackOpeningStage: React.FC<PackOpeningStageProps> = ({
       )}
 
       {/* ===================================================================
-       * PHASE 3: REVEALING 5 DRAWN CARDS (INTERACTIVE FLIP)
+       * PHASE 3: DECK-IN-HAND SLIDE & PEEL REVEAL (POKÉMON TCG POCKET FEEL)
        * =================================================================== */}
-      {phase === 'revealing_cards' && (
-        <div className="w-full flex flex-col items-center space-y-6 animate-in fade-in">
-          {/* Header Controls */}
-          <div className="flex items-center justify-between w-full max-w-4xl border-b border-white/20 pb-3">
-            <div>
-              <span className="text-[10px] font-mono text-amber-400 font-bold uppercase tracking-widest block">
-                CARDS UNSEALED
+      {phase === 'stack_reveal' && currentDrawn && (
+        <div className="w-full flex flex-col items-center space-y-6 animate-in fade-in duration-300">
+          {/* Top Progress & Suspense Bar */}
+          <div className="w-full max-w-md flex items-center justify-between border-b border-white/20 pb-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-mono font-black text-amber-400 flex items-center gap-1.5">
+                <Layers className="w-4 h-4" />
+                CARD {currentCardIndex + 1} / 5
               </span>
-              <h2 className="text-xl sm:text-2xl font-bold text-white">
-                Tap Each Card to Reveal
-              </h2>
+              {currentCardIndex === 4 && (
+                <span className="px-2.5 py-0.5 rounded-full bg-gradient-to-r from-amber-400 to-yellow-300 text-black font-mono font-black text-[9px] shadow-[0_0_15px_#ffd700] animate-pulse flex items-center gap-1">
+                  <Sparkles className="w-3 h-3" /> CLIMAX SLOT
+                </span>
+              )}
             </div>
 
             <button
-              onClick={handleRevealAll}
-              className="px-3.5 py-1.5 rounded-lg border border-white/30 bg-white/10 hover:bg-white hover:text-black font-mono text-xs font-bold uppercase tracking-wider transition-all cursor-pointer"
+              onClick={handleRevealAllInstant}
+              className="text-[11px] font-mono text-neutral-400 hover:text-white underline cursor-pointer"
             >
-              Reveal All
+              Skip to Summary
             </button>
           </div>
 
-          {/* Cards Stage Carousel / Grid */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 sm:gap-6 justify-items-center py-4 w-full">
-            {drawnCards.map((item, idx) => (
-              <div key={item.card.id} className="flex flex-col items-center space-y-2">
-                <HoloCard3D
-                  card={item.card}
-                  isFlipped={item.isRevealed}
-                  onFlip={() => handleFlipCard(idx)}
-                  onDiveIn={() => onSelectImmersiveCard(item.card)}
-                  size="md"
-                  showSuspenseGlow={!item.isRevealed}
-                />
-                <span className="text-[10px] font-mono text-neutral-400">
-                  Slot #{idx + 1} {item.isRevealed ? `· ${item.card.name}` : '· Sealed'}
-                </span>
-              </div>
-            ))}
+          {/* Celebration Flash Banner */}
+          {celebrationBanner && (
+            <div className="py-2.5 px-6 rounded-full bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-500 text-black font-mono text-xs font-black tracking-widest uppercase shadow-[0_0_30px_rgba(245,158,11,0.9)] animate-in zoom-in-95 duration-200">
+              {celebrationBanner}
+            </div>
+          )}
+
+          {/* 3D Hand-Held Deck Stack Area */}
+          <div className="relative flex flex-col items-center py-2">
+            {/* Visual Physical Stack of Remaining Unopened Cards Behind */}
+            {remainingCardsCount > 0 && (
+              <>
+                {/* 3rd Card in Hand Silhouette */}
+                {remainingCardsCount >= 3 && (
+                  <div
+                    className="absolute top-6 w-60 h-84 sm:w-68 sm:h-96 rounded-2xl overflow-hidden border border-neutral-700/80 shadow-2xl pointer-events-none -z-30 opacity-65"
+                    style={{
+                      transform: 'translate3d(0, 16px, -40px) rotate(3deg)',
+                    }}
+                  >
+                    <img
+                      src={POKEBALL_BACK_URL}
+                      alt="Remaining Card"
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                )}
+
+                {/* 2nd Card in Hand Silhouette */}
+                {remainingCardsCount >= 2 && (
+                  <div
+                    className="absolute top-4 w-62 h-86 sm:w-70 sm:h-98 rounded-2xl overflow-hidden border border-neutral-600/80 shadow-2xl pointer-events-none -z-20 opacity-80"
+                    style={{
+                      transform: 'translate3d(0, 10px, -25px) rotate(-2.2deg)',
+                    }}
+                  >
+                    <img
+                      src={POKEBALL_BACK_URL}
+                      alt="Remaining Card"
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                )}
+
+                {/* Immediately Next Card in Hand */}
+                <div
+                  className="absolute top-2 w-64 h-88 sm:w-72 sm:h-[400px] rounded-2xl overflow-hidden border border-neutral-500 shadow-2xl pointer-events-none -z-10 opacity-95"
+                  style={{
+                    transform: 'translate3d(0, 5px, -12px) rotate(1.2deg)',
+                  }}
+                >
+                  <img
+                    src={POKEBALL_BACK_URL}
+                    alt="Next Card"
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+              </>
+            )}
+
+            {/* Active Card in Hand */}
+            <div className="animate-card-spring-in">
+              <HoloCard3D
+                card={currentDrawn.card}
+                isFlipped={currentDrawn.isRevealed}
+                onFlip={handleFlipCurrentCard}
+                onDiveIn={() => onSelectImmersiveCard(currentDrawn.card)}
+                onFlick={(dir) => handleAdvanceCard(dir)}
+                size="lg"
+                showSuspenseGlow={!currentDrawn.isRevealed}
+                flickAnimation={flickAnim}
+              />
+            </div>
+
+            {/* Control & Gesture Tip Bar */}
+            <div className="mt-5 text-center flex flex-col items-center gap-3">
+              {!currentDrawn.isRevealed ? (
+                <div className="flex flex-col items-center gap-1.5">
+                  <button
+                    onClick={handleFlipCurrentCard}
+                    className="px-7 py-3 rounded-full bg-amber-500 hover:bg-amber-400 text-black font-mono text-xs font-black uppercase tracking-wider transition-all shadow-[0_0_20px_rgba(245,158,11,0.6)] cursor-pointer active:scale-95 flex items-center gap-2"
+                  >
+                    <Sparkle className="w-4 h-4 fill-current" />
+                    <span>TAP OR PEEL CARD TO REVEAL</span>
+                  </button>
+                  <span className="text-[10px] font-mono text-neutral-400">
+                    Hint: Tap card face or drag across to flip over in 3D
+                  </span>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center space-y-3">
+                  <div className="text-center font-mono">
+                    <h3 className="text-xl font-black text-white drop-shadow">
+                      {currentDrawn.card.name}
+                    </h3>
+                    <span className="text-xs text-amber-300 font-bold">
+                      {currentDrawn.card.rarity} · #{currentDrawn.card.localId}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => handleAdvanceCard('right')}
+                      className="flex items-center gap-2 px-8 py-3 rounded-full bg-white hover:bg-neutral-200 text-black font-mono text-xs font-black uppercase tracking-widest transition-all shadow-xl cursor-pointer active:scale-95"
+                    >
+                      <span>
+                        {currentCardIndex < 4
+                          ? 'Slide to Next Card'
+                          : 'See Pack Results'}
+                      </span>
+                      <ArrowRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <span className="text-[10px] font-mono text-neutral-400">
+                    Swipe or flick card left/right to slide it away
+                  </span>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
 
       {/* ===================================================================
-       * PHASE 4: SUMMARY & BINDER ARCHIVE
+       * PHASE 4: SUMMARY & BEST PULL HIGHLIGHT
        * =================================================================== */}
       {phase === 'summary' && (
         <div className="w-full flex flex-col items-center space-y-8 animate-in zoom-in-95 duration-300">
           <div className="text-center space-y-1">
             <span className="text-[10px] font-mono text-emerald-400 font-bold uppercase tracking-widest flex items-center justify-center gap-1">
-              <Check className="w-4 h-4" /> PACK OPENING COMPLETE
+              <Check className="w-4 h-4" /> 5 SPECIMENS UNSEALED
             </span>
-            <h2 className="text-3xl font-bold text-white tracking-wide">
-              New Specimens Acquired!
+            <h2 className="text-3xl sm:text-4xl font-serif font-black text-white tracking-tight">
+              Booster Opening Complete!
             </h2>
-            <p className="text-xs font-mono text-neutral-400">
-              All 5 cards have been permanently archived to your Pocket binder.
-            </p>
+            {bestCard && (
+              <div className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-amber-500/20 border border-amber-400 text-amber-300 font-mono text-xs font-bold mt-2 shadow-[0_0_15px_rgba(245,158,11,0.3)]">
+                <Trophy className="w-3.5 h-3.5" />
+                <span>
+                  Pull of the Pack:{' '}
+                  <strong>
+                    {bestCard.name} ({bestCard.rarity})
+                  </strong>
+                </span>
+              </div>
+            )}
           </div>
 
-          {/* Showcase of Drawn Cards */}
+          {/* Tray Showcase of 5 Drawn Cards */}
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 sm:gap-6 justify-items-center w-full">
             {drawnCards.map((item) => (
-              <div key={item.card.id} className="flex flex-col items-center space-y-2">
+              <div
+                key={item.card.id}
+                className="flex flex-col items-center space-y-2"
+              >
                 <HoloCard3D
                   card={item.card}
                   isFlipped={true}
                   onDiveIn={() => onSelectImmersiveCard(item.card)}
                   size="md"
                 />
-                <div className="text-center">
-                  <span className="text-xs font-bold text-white block">{item.card.name}</span>
-                  <span className="text-[10px] font-mono text-amber-300">{item.card.rarity}</span>
+                <div className="text-center font-mono">
+                  <span className="text-xs font-bold text-white block">
+                    {item.card.name}
+                  </span>
+                  <span className="text-[10px] text-amber-300">
+                    {item.card.rarity}
+                  </span>
                 </div>
               </div>
             ))}
           </div>
 
-          {/* Bottom Actions */}
+          {/* Action Buttons */}
           <div className="flex flex-wrap items-center justify-center gap-4 pt-4 border-t border-white/20 w-full max-w-xl">
             <button
               onClick={handleResetToPackSelection}
@@ -300,7 +477,7 @@ export const PackOpeningStage: React.FC<PackOpeningStageProps> = ({
               className="flex items-center gap-2 px-6 py-3 rounded-xl border border-white/40 bg-neutral-800 hover:bg-neutral-700 text-white font-mono text-xs font-bold uppercase tracking-wider transition-all cursor-pointer"
             >
               <BookOpen className="w-4 h-4" />
-              <span>View Card Binder</span>
+              <span>View in Card Binder</span>
             </button>
           </div>
         </div>

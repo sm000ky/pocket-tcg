@@ -8,9 +8,11 @@ interface HoloCard3DProps {
   isFlipped?: boolean; // true = face up, false = back side
   onFlip?: () => void;
   onDiveIn?: () => void;
+  onFlick?: (direction: 'left' | 'right') => void;
   interactive?: boolean;
   size?: 'sm' | 'md' | 'lg' | 'xl';
   showSuspenseGlow?: boolean;
+  flickAnimation?: 'left' | 'right' | null;
 }
 
 const POKEBALL_BACK_URL = 'https://assets.tcgdex.net/univ/tcgp/back.webp';
@@ -20,9 +22,11 @@ export const HoloCard3D: React.FC<HoloCard3DProps> = ({
   isFlipped = true,
   onFlip,
   onDiveIn,
+  onFlick,
   interactive = true,
   size = 'md',
   showSuspenseGlow = false,
+  flickAnimation = null,
 }) => {
   const cardRef = useRef<HTMLDivElement>(null);
   const [rotateX, setRotateX] = useState<number>(0);
@@ -30,6 +34,23 @@ export const HoloCard3D: React.FC<HoloCard3DProps> = ({
   const [glareX, setGlareX] = useState<number>(50);
   const [glareY, setGlareY] = useState<number>(50);
   const [isHovered, setIsHovered] = useState<boolean>(false);
+  const [dragOffset, setDragOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [justRevealed, setJustRevealed] = useState<boolean>(false);
+  const [isDragging, setIsDragging] = useState<boolean>(false);
+
+  const isDraggingRef = useRef<boolean>(false);
+  const startPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const wasFlippedRef = useRef<boolean>(isFlipped);
+
+  // Trigger sheen sweep animation on reveal
+  useEffect(() => {
+    if (isFlipped && !wasFlippedRef.current) {
+      setJustRevealed(true);
+      const timer = setTimeout(() => setJustRevealed(false), 900);
+      return () => clearTimeout(timer);
+    }
+    wasFlippedRef.current = isFlipped;
+  }, [isFlipped]);
 
   // Size dimensions
   const sizeClasses = {
@@ -40,47 +61,92 @@ export const HoloCard3D: React.FC<HoloCard3DProps> = ({
   }[size];
 
   // Mouse & Touch 3D tilt tracking
-  const handlePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    if (!interactive || !cardRef.current) return;
-    const rect = cardRef.current.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+  const handlePointerMove = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (!interactive || !cardRef.current) return;
+      const rect = cardRef.current.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
 
-    const percentX = (x / rect.width) * 100;
-    const percentY = (y / rect.height) * 100;
+      const percentX = (x / rect.width) * 100;
+      const percentY = (y / rect.height) * 100;
 
-    const rY = ((x - rect.width / 2) / (rect.width / 2)) * 18; // Max 18deg
-    const rX = -((y - rect.height / 2) / (rect.height / 2)) * 18;
+      const rY = ((x - rect.width / 2) / (rect.width / 2)) * 18;
+      const rX = -((y - rect.height / 2) / (rect.height / 2)) * 18;
 
-    setRotateX(rX);
-    setRotateY(rY);
-    setGlareX(percentX);
-    setGlareY(percentY);
-  }, [interactive]);
+      setRotateX(rX);
+      setRotateY(rY);
+      setGlareX(percentX);
+      setGlareY(percentY);
+
+      if (isDraggingRef.current) {
+        const dx = e.clientX - startPosRef.current.x;
+        const dy = e.clientY - startPosRef.current.y;
+        setDragOffset({ x: dx, y: dy });
+      }
+    },
+    [interactive]
+  );
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!interactive) return;
+    isDraggingRef.current = true;
+    setIsDragging(true);
+    startPosRef.current = { x: e.clientX, y: e.clientY };
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+
+    // If card is unrevealed and rare, play subtle tension riser
+    if (!isFlipped && card.rarityRank >= 4) {
+      pocketAudio.playTensionRiser();
+    }
+  };
+
+  const handlePointerUp = () => {
+    if (!interactive) return;
+    const { x: dx, y: dy } = dragOffset;
+    isDraggingRef.current = false;
+    setIsDragging(false);
+    setDragOffset({ x: 0, y: 0 });
+
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    // Flick gesture (if card is flipped and dragged > 65px)
+    if (isFlipped && onFlick && Math.abs(dx) > 65) {
+      onFlick(dx > 0 ? 'right' : 'left');
+      return;
+    }
+
+    // Tap/Click to flip (if minimal drag movement)
+    if (dist < 15 && !isFlipped && onFlip) {
+      pocketAudio.playCardFlip();
+      onFlip();
+    }
+  };
 
   const handlePointerEnter = () => {
     if (!interactive) return;
     setIsHovered(true);
-    if (card.isHolo) {
+    if (card.isHolo && isFlipped) {
       pocketAudio.playHoloSparkle();
     }
   };
 
   const handlePointerLeave = () => {
-    setIsHovered(false);
-    setRotateX(0);
-    setRotateY(0);
-    setGlareX(50);
-    setGlareY(50);
+    if (!isDraggingRef.current) {
+      setIsHovered(false);
+      setRotateX(0);
+      setRotateY(0);
+      setGlareX(50);
+      setGlareY(50);
+    }
   };
 
-  // Gyroscope tilt on mobile Poco F7 Pro (DeviceOrientation API)
+  // Gyroscope tilt on mobile (DeviceOrientation API)
   useEffect(() => {
     if (!interactive) return;
 
     const handleOrientation = (e: DeviceOrientationEvent) => {
       if (e.gamma !== null && e.beta !== null) {
-        // gamma: left-right (-90 to 90), beta: front-back (-180 to 180)
         const tiltX = Math.max(-20, Math.min(20, (e.beta - 45) * 0.5));
         const tiltY = Math.max(-20, Math.min(20, e.gamma * 0.6));
         setRotateX(-tiltX);
@@ -95,47 +161,49 @@ export const HoloCard3D: React.FC<HoloCard3DProps> = ({
   }, [interactive]);
 
   // Suspense glow for rare cards before reveal
-  const getSuspenseGlowStyle = () => {
+  const getSuspenseGlowClass = () => {
     if (!showSuspenseGlow || isFlipped) return '';
     if (card.isCrown) {
-      return 'shadow-[0_0_35px_rgba(255,215,0,0.85)] ring-2 ring-yellow-400';
+      return 'animate-suspense-crown ring-2 ring-yellow-400';
     }
     if (card.isImmersive) {
-      return 'shadow-[0_0_35px_rgba(56,189,248,0.85)] ring-2 ring-cyan-400';
+      return 'animate-suspense-immersive ring-2 ring-cyan-400';
     }
     if (card.rarityRank >= 4) {
-      return 'shadow-[0_0_25px_rgba(236,72,153,0.75)] ring-2 ring-pink-400';
+      return 'animate-suspense-rare ring-2 ring-pink-400';
     }
     if (card.rarityRank >= 3) {
-      return 'shadow-[0_0_20px_rgba(168,85,247,0.65)] ring-2 ring-purple-400';
+      return 'shadow-[0_0_25px_rgba(168,85,247,0.7)] ring-2 ring-purple-400';
     }
     return '';
   };
 
-  const handleClick = () => {
-    if (onFlip) {
-      pocketAudio.playCardFlip();
-      onFlip();
-    }
+  const getFlickAnimationClass = () => {
+    if (flickAnimation === 'left') return 'animate-card-flick-left pointer-events-none';
+    if (flickAnimation === 'right') return 'animate-card-flick-right pointer-events-none';
+    return '';
   };
 
   return (
     <div
-      className={`relative select-none perspective-[1000px] flex items-center justify-center ${sizeClasses}`}
-      style={{ perspective: '1000px' }}
+      className={`relative select-none perspective-[1200px] flex items-center justify-center ${sizeClasses} ${getFlickAnimationClass()}`}
+      style={{ perspective: '1200px' }}
     >
       <div
         ref={cardRef}
-        onClick={handleClick}
+        onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
         onPointerEnter={handlePointerEnter}
         onPointerLeave={handlePointerLeave}
-        className={`w-full h-full relative cursor-pointer rounded-2xl transition-transform duration-200 ease-out transform-gpu preserve-3d ${getSuspenseGlowStyle()}`}
+        className={`w-full h-full relative cursor-pointer rounded-2xl transition-transform duration-200 ease-out transform-gpu preserve-3d touch-none ${getSuspenseGlowClass()}`}
         style={{
           transformStyle: 'preserve-3d',
-          transform: `rotateX(${rotateX}deg) rotateY(${isFlipped ? rotateY : rotateY + 180}deg) ${
-            isHovered ? 'scale3d(1.05, 1.05, 1.05)' : 'scale3d(1, 1, 1)'
-          }`,
+          transform: `translate3d(${dragOffset.x}px, ${dragOffset.y}px, 0px) rotateZ(${
+            dragOffset.x * 0.08
+          }deg) rotateX(${rotateX}deg) rotateY(${
+            isFlipped ? rotateY : rotateY + 180
+          }deg) ${isHovered && !isDragging ? 'scale3d(1.04, 1.04, 1.04)' : 'scale3d(1, 1, 1)'}`,
         }}
       >
         {/* ===================================================================
@@ -156,12 +224,12 @@ export const HoloCard3D: React.FC<HoloCard3DProps> = ({
             }}
           />
 
-          {/* Holographic Prismatic Foil Shader (For Holo / ex / Stars / Crown) */}
+          {/* Holographic Prismatic Foil Shader */}
           {card.isHolo && (
             <div
               className="absolute inset-0 pointer-events-none mix-blend-color-dodge transition-opacity duration-200 rounded-2xl"
               style={{
-                opacity: isHovered ? 0.85 : 0.45,
+                opacity: isHovered ? 0.9 : 0.45,
                 background: `linear-gradient(${
                   115 + rotateY * 2
                 }deg, rgba(255,0,0,0.4) 0%, rgba(255,154,0,0.4) 15%, rgba(208,222,33,0.4) 30%, rgba(79,220,74,0.4) 45%, rgba(63,218,216,0.4) 60%, rgba(47,201,226,0.4) 75%, rgba(28,127,238,0.4) 85%, rgba(95,21,242,0.4) 95%)`,
@@ -173,7 +241,7 @@ export const HoloCard3D: React.FC<HoloCard3DProps> = ({
           <div
             className="absolute inset-0 pointer-events-none mix-blend-overlay transition-opacity duration-150 rounded-2xl"
             style={{
-              opacity: isHovered ? 0.75 : 0.25,
+              opacity: isHovered ? 0.8 : 0.25,
               background: `radial-gradient(circle at ${glareX}% ${glareY}%, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0.15) 35%, transparent 65%)`,
             }}
           />
@@ -185,9 +253,21 @@ export const HoloCard3D: React.FC<HoloCard3DProps> = ({
               style={{
                 background: `linear-gradient(${
                   45 + rotateX * 3
-                }deg, rgba(255,215,0,0.6) 0%, rgba(255,248,220,0.8) 50%, rgba(184,134,11,0.6) 100%)`,
+                }deg, rgba(255,215,0,0.65) 0%, rgba(255,248,220,0.85) 50%, rgba(184,134,11,0.65) 100%)`,
               }}
             />
+          )}
+
+          {/* Reveal Flash Sheen Sweep Animation */}
+          {justRevealed && (
+            <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-2xl z-30">
+              <div
+                className="w-[200%] h-full bg-gradient-to-r from-transparent via-white/85 to-transparent animate-sheen-sweep"
+                style={{
+                  boxShadow: '0 0 40px rgba(255,255,255,0.9)',
+                }}
+              />
+            </div>
           )}
 
           {/* Immersive Badge & "Dive In" Button */}
@@ -198,7 +278,7 @@ export const HoloCard3D: React.FC<HoloCard3DProps> = ({
                   e.stopPropagation();
                   onDiveIn();
                 }}
-                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-black/80 backdrop-blur-md border border-cyan-400 text-cyan-300 text-xs font-mono font-bold tracking-wider hover:bg-cyan-500 hover:text-black transition-all shadow-[0_0_15px_rgba(56,189,248,0.5)] cursor-pointer"
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-black/85 backdrop-blur-md border border-cyan-400 text-cyan-300 text-xs font-mono font-bold tracking-wider hover:bg-cyan-500 hover:text-black transition-all shadow-[0_0_15px_rgba(56,189,248,0.6)] cursor-pointer"
               >
                 <Maximize2 className="w-3.5 h-3.5" />
                 <span>DIVE IN (IMMERSIVE)</span>
@@ -239,23 +319,24 @@ export const HoloCard3D: React.FC<HoloCard3DProps> = ({
             alt="Pokémon Card Back"
             className="w-full h-full object-cover rounded-2xl pointer-events-none"
             onError={(e) => {
-              // Fallback aesthetic styling if external back fails
               (e.target as HTMLImageElement).style.display = 'none';
             }}
           />
-          {/* Subtle Back Specular Sheen */}
+
+          {/* Back Specular Sheen */}
           <div
             className="absolute inset-0 pointer-events-none mix-blend-overlay rounded-2xl"
             style={{
               background: `radial-gradient(circle at ${100 - glareX}% ${glareY}%, rgba(255,255,255,0.4) 0%, transparent 60%)`,
             }}
           />
+
           <div className="absolute inset-0 flex flex-col items-center justify-center p-4 text-center">
             <div className="w-16 h-16 rounded-full border-4 border-amber-400/60 bg-black/40 flex items-center justify-center shadow-inner">
               <Eye className="w-6 h-6 text-amber-300 opacity-80" />
             </div>
-            <span className="mt-3 text-[11px] font-mono tracking-widest text-amber-200/80 uppercase font-bold">
-              TAP TO REVEAL
+            <span className="mt-3 text-[11px] font-mono tracking-widest text-amber-200/90 uppercase font-bold">
+              TAP OR FLICK TO REVEAL
             </span>
           </div>
         </div>
