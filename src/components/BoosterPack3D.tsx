@@ -16,6 +16,8 @@ export const BoosterPack3D: React.FC<BoosterPack3DProps> = ({
   isOpening = false,
 }) => {
   const packRef = useRef<HTMLDivElement>(null);
+  const tearTrackRef = useRef<HTMLDivElement>(null);
+
   const [rotateX, setRotateX] = useState<number>(0);
   const [rotateY, setRotateY] = useState<number>(0);
   const [glareX, setGlareX] = useState<number>(50);
@@ -23,10 +25,11 @@ export const BoosterPack3D: React.FC<BoosterPack3DProps> = ({
   const [ripProgress, setRipProgress] = useState<number>(0); // 0 to 100
   const [isTorn, setIsTorn] = useState<boolean>(false);
   const [showCardsSlideUp, setShowCardsSlideUp] = useState<boolean>(false);
-  const [isDragging, setIsDragging] = useState<boolean>(false);
+  const [isDraggingTear, setIsDraggingTear] = useState<boolean>(false);
 
-  const isDraggingRef = useRef<boolean>(false);
+  const isDraggingTearRef = useRef<boolean>(false);
   const startXRef = useRef<number>(0);
+  const startProgressRef = useRef<number>(0);
   const lastSoundTickRef = useRef<number>(0);
   const openTriggeredRef = useRef<boolean>(false);
 
@@ -42,22 +45,22 @@ export const BoosterPack3D: React.FC<BoosterPack3DProps> = ({
     // Metallic foil confetti burst along the tear line
     try {
       confetti({
-        particleCount: 50,
-        spread: 80,
+        particleCount: 65,
+        spread: 85,
         origin: { y: 0.35 },
         colors: [pack.accentColor, '#FFD700', '#E2E8F0', '#FFFFFF'],
-        gravity: 1.2,
+        gravity: 1.1,
         scalar: 0.9,
       });
     } catch {
       // Ignore fallback
     }
 
-    // Sequence 2: Cards emerge & slide up out of pouch after 220ms
+    // Sequence 2: Cards emerge & slide up out of pouch after 200ms
     setTimeout(() => {
       setShowCardsSlideUp(true);
       pocketAudio.playPackCardsEmerge();
-    }, 220);
+    }, 200);
 
     // Sequence 3: Transition to deck-in-hand reveal after full animation
     setTimeout(() => {
@@ -65,71 +68,83 @@ export const BoosterPack3D: React.FC<BoosterPack3DProps> = ({
     }, 950);
   }, [onOpenPack, pack.accentColor]);
 
-  // Pointer move for 3D tilt and drag ripping
-  const handlePointerMove = useCallback(
+  // Pack 3D Tilt Tracking (Mouse & Gyro)
+  const handlePackPointerMove = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
-      if (isTorn || isOpening || !packRef.current) return;
+      if (isTorn || isOpening || isDraggingTearRef.current || !packRef.current) return;
       const rect = packRef.current.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
 
-      const rY = ((x - rect.width / 2) / (rect.width / 2)) * 14;
-      const rX = -((y - rect.height / 2) / (rect.height / 2)) * 14;
+      const rY = ((x - rect.width / 2) / (rect.width / 2)) * 15;
+      const rX = -((y - rect.height / 2) / (rect.height / 2)) * 15;
 
       setRotateX(rX);
       setRotateY(rY);
       setGlareX((x / rect.width) * 100);
       setGlareY((y / rect.height) * 100);
-
-      // Handle drag-to-rip gesture along top seam
-      if (isDraggingRef.current) {
-        const deltaX = e.clientX - startXRef.current;
-        const progress = Math.min(
-          100,
-          Math.max(0, (deltaX / (rect.width * 0.72)) * 100)
-        );
-        setRipProgress(progress);
-
-        // Tactile sound tick every 50ms during active drag
-        const now = Date.now();
-        if (now - lastSoundTickRef.current > 50) {
-          pocketAudio.playFoilCrinkle();
-          lastSoundTickRef.current = now;
-        }
-
-        if (progress >= 85 && !openTriggeredRef.current) {
-          isDraggingRef.current = false;
-          setIsDragging(false);
-          triggerRipExecution();
-        }
-      }
     },
-    [isTorn, isOpening, triggerRipExecution]
+    [isTorn, isOpening]
   );
 
-  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (isTorn || isOpening) return;
-    isDraggingRef.current = true;
-    setIsDragging(true);
-    startXRef.current = e.clientX;
-    pocketAudio.playFoilCrinkle();
-    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
-  };
-
-  const handlePointerUp = () => {
-    isDraggingRef.current = false;
-    setIsDragging(false);
-    if (ripProgress < 85 && !isTorn) {
-      setRipProgress(0); // Snap back if incomplete
-    }
-  };
-
-  const handlePointerLeave = () => {
-    if (!isDraggingRef.current && !isTorn) {
+  const handlePackPointerLeave = () => {
+    if (!isDraggingTearRef.current && !isTorn) {
       setRotateX(0);
       setRotateY(0);
       setGlareX(50);
       setGlareY(50);
+    }
+  };
+
+  // Dedicated Tear Strip Pointer Handlers
+  const handleTearPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (isTorn || isOpening) return;
+    e.stopPropagation();
+    isDraggingTearRef.current = true;
+    setIsDraggingTear(true);
+    startXRef.current = e.clientX;
+    startProgressRef.current = ripProgress;
+    pocketAudio.playFoilCrinkle();
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+  };
+
+  const handleTearPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isDraggingTearRef.current || isTorn || isOpening) return;
+    e.stopPropagation();
+
+    const trackWidth = tearTrackRef.current?.getBoundingClientRect().width || 280;
+    const deltaX = e.clientX - startXRef.current;
+    const progressInc = (deltaX / (trackWidth * 0.75)) * 100;
+    const nextProgress = Math.min(100, Math.max(0, startProgressRef.current + progressInc));
+
+    setRipProgress(nextProgress);
+
+    // Tactile sound tick every 45ms during active drag
+    const now = Date.now();
+    if (now - lastSoundTickRef.current > 45) {
+      pocketAudio.playFoilCrinkle();
+      lastSoundTickRef.current = now;
+    }
+
+    // If dragged past 55%, auto-trigger full rip smoothly!
+    if (nextProgress >= 55 && !openTriggeredRef.current) {
+      isDraggingTearRef.current = false;
+      setIsDraggingTear(false);
+      triggerRipExecution();
+    }
+  };
+
+  const handleTearPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isDraggingTearRef.current) return;
+    e.stopPropagation();
+    isDraggingTearRef.current = false;
+    setIsDraggingTear(false);
+
+    // If user released past 40%, complete the tear! Otherwise snap back smoothly
+    if (ripProgress >= 40 && !isTorn) {
+      triggerRipExecution();
+    } else if (!isTorn) {
+      setRipProgress(0);
     }
   };
 
@@ -146,16 +161,14 @@ export const BoosterPack3D: React.FC<BoosterPack3DProps> = ({
   }, [isOpening, isTorn, triggerRipExecution]);
 
   return (
-    <div className="relative flex flex-col items-center select-none perspective-[1200px] w-76 sm:w-88 h-[510px]">
+    <div className="relative flex flex-col items-center select-none perspective-[1200px] w-76 sm:w-88 h-[520px]">
       {/* 3D Pack Canvas */}
       <div
         ref={packRef}
-        onPointerMove={handlePointerMove}
-        onPointerDown={handlePointerDown}
-        onPointerUp={handlePointerUp}
-        onPointerLeave={handlePointerLeave}
-        className={`w-full h-full relative cursor-grab active:cursor-grabbing rounded-2xl transition-transform duration-150 ease-out transform-gpu preserve-3d shadow-2xl ${
-          isTorn ? 'animate-screen-shake' : !isDragging ? 'animate-pack-idle' : ''
+        onPointerMove={handlePackPointerMove}
+        onPointerLeave={handlePackPointerLeave}
+        className={`w-full h-full relative rounded-2xl transition-transform duration-150 ease-out transform-gpu preserve-3d shadow-2xl ${
+          isTorn ? 'animate-screen-shake' : !isDraggingTear ? 'animate-pack-idle' : ''
         }`}
         style={{
           transformStyle: 'preserve-3d',
@@ -166,20 +179,29 @@ export const BoosterPack3D: React.FC<BoosterPack3DProps> = ({
          * TOP TEAR STRIP (CAN DETACH & PEEL PHYSICALLY)
          * ================================================================= */}
         <div
-          className={`absolute top-0 left-0 right-0 h-16 rounded-t-2xl bg-neutral-900 border-2 border-b-0 border-white/30 overflow-hidden z-30 transition-transform origin-bottom-left ${
+          ref={tearTrackRef}
+          onPointerDown={handleTearPointerDown}
+          onPointerMove={handleTearPointerMove}
+          onPointerUp={handleTearPointerUp}
+          onPointerCancel={handleTearPointerUp}
+          className={`absolute top-0 left-0 right-0 h-16 rounded-t-2xl bg-neutral-900 border-2 border-b-0 border-white/30 overflow-hidden z-30 transition-transform origin-bottom-left touch-none cursor-ew-resize ${
             isTorn ? 'animate-tear-flyoff pointer-events-none' : ''
           }`}
           style={{
-            transform: !isTorn && ripProgress > 0
-              ? `rotate(${-ripProgress * 0.18}deg) translate3d(${ripProgress * 0.25}px, ${-ripProgress * 0.12}px, 12px) skewX(${-ripProgress * 0.08}deg)`
-              : undefined,
+            touchAction: 'none',
+            transform:
+              !isTorn && ripProgress > 0
+                ? `rotate(${-ripProgress * 0.22}deg) translate3d(${ripProgress * 0.3}px, ${
+                    -ripProgress * 0.15
+                  }px, 14px) skewX(${-ripProgress * 0.1}deg)`
+                : undefined,
             boxShadow:
-              ripProgress > 0 ? '0 10px 30px rgba(255,215,0,0.6)' : 'none',
+              ripProgress > 0 ? '0 10px 30px rgba(255,215,0,0.7)' : 'none',
           }}
         >
           {/* Metallic ridges */}
           <div
-            className="absolute inset-0 opacity-45"
+            className="absolute inset-0 opacity-45 pointer-events-none"
             style={{
               backgroundImage:
                 'repeating-linear-gradient(90deg, #000 0px, #000 2px, #fff 3px, #fff 4px)',
@@ -190,17 +212,19 @@ export const BoosterPack3D: React.FC<BoosterPack3DProps> = ({
           <div
             className="absolute inset-0 opacity-40 mix-blend-color-dodge pointer-events-none"
             style={{
-              background: `linear-gradient(${110 + rotateY * 2}deg, rgba(255,0,128,0.4) 0%, rgba(255,215,0,0.5) 50%, rgba(0,255,255,0.4) 100%)`,
+              background: `linear-gradient(${
+                110 + rotateY * 2
+              }deg, rgba(255,0,128,0.4) 0%, rgba(255,215,0,0.5) 50%, rgba(0,255,255,0.4) 100%)`,
             }}
           />
 
           <div className="relative z-10 w-full h-full flex flex-col items-center justify-center px-4">
             <div className="w-full flex items-center justify-between border-b-2 border-dashed border-amber-400/90 pb-1">
-              <div className="flex items-center gap-1.5 text-[10px] font-mono font-bold text-amber-300 drop-shadow">
-                <Scissors className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
+              <div className="flex items-center gap-1.5 text-[11px] font-mono font-bold text-amber-300 drop-shadow">
+                <Scissors className="w-3.5 h-3.5 text-amber-400" />
                 <span>SWIPE RIGHT TO RIP</span>
               </div>
-              <div className="flex items-center text-[10px] font-mono text-amber-300 font-black">
+              <div className="flex items-center text-[11px] font-mono text-amber-300 font-black">
                 <span>{Math.round(ripProgress)}%</span>
                 <ChevronRight className="w-3.5 h-3.5 ml-0.5 text-amber-400" />
               </div>
@@ -209,19 +233,29 @@ export const BoosterPack3D: React.FC<BoosterPack3DProps> = ({
             {/* Glowing tear beam line */}
             {ripProgress > 0 && (
               <div
-                className="absolute bottom-0 left-0 h-1 bg-gradient-to-r from-amber-400 to-yellow-200 shadow-[0_0_15px_#ffd700]"
+                className="absolute bottom-0 left-0 h-1.5 bg-gradient-to-r from-amber-400 via-yellow-200 to-white shadow-[0_0_15px_#ffd700]"
                 style={{ width: `${ripProgress}%` }}
               />
             )}
+
+            {/* Draggable Tear Slider Tab Indicator */}
+            <div
+              className="absolute left-3 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-gradient-to-br from-amber-400 to-yellow-500 border border-white shadow-[0_0_12px_rgba(245,158,11,0.8)] flex items-center justify-center pointer-events-none transition-transform"
+              style={{
+                transform: `translate(${Math.max(0, ripProgress * 2.2)}px, -50%)`,
+              }}
+            >
+              <ChevronRight className="w-4 h-4 text-black stroke-[3]" />
+            </div>
           </div>
         </div>
 
         {/* Light Beam shooting out from the breach */}
         {isTorn && (
           <div
-            className="absolute top-12 left-0 right-0 h-32 bg-gradient-to-t from-amber-400 via-white to-transparent pointer-events-none z-25 blur-[4px] animate-beam-burst"
+            className="absolute top-12 left-0 right-0 h-36 bg-gradient-to-t from-amber-400 via-white to-transparent pointer-events-none z-25 blur-[4px] animate-beam-burst"
             style={{
-              boxShadow: '0 0 60px rgba(255,215,0,0.95)',
+              boxShadow: '0 0 65px rgba(255,215,0,0.95)',
             }}
           />
         )}
@@ -230,9 +264,9 @@ export const BoosterPack3D: React.FC<BoosterPack3DProps> = ({
          * CARDS SLIDING OUT OF THE OPENED FOIL SLEEVE
          * ================================================================= */}
         {showCardsSlideUp && (
-          <div className="absolute top-12 left-6 right-6 h-64 rounded-xl bg-gradient-to-b from-[#1e293b] to-[#0f172a] border-2 border-amber-400/80 shadow-[0_0_30px_rgba(251,191,36,0.6)] flex flex-col items-center justify-center z-20 animate-cards-emerge preserve-3d">
+          <div className="absolute top-12 left-6 right-6 h-64 rounded-xl bg-gradient-to-b from-[#1e293b] to-[#0f172a] border-2 border-amber-400/80 shadow-[0_0_35px_rgba(251,191,36,0.7)] flex flex-col items-center justify-center z-20 animate-cards-emerge preserve-3d">
             <div className="w-12 h-12 rounded-full border-2 border-amber-400 flex items-center justify-center bg-black/50 shadow-inner mb-2">
-              <Sparkles className="w-6 h-6 text-amber-300 animate-spin" />
+              <Sparkles className="w-6 h-6 text-amber-300" />
             </div>
             <span className="text-xs font-mono font-extrabold text-amber-300 tracking-widest uppercase">
               5 CARDS UNSEALED!

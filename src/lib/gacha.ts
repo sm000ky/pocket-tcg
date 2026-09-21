@@ -42,13 +42,115 @@ export interface DrawnCard {
   slotIndex: number;
 }
 
+export interface RarityTierVisual {
+  name: string;
+  color: string;
+  borderClass: string;
+  glowClass: string;
+  edgeColor: string;
+  suspenseAura: string;
+  textColor: string;
+  symbol: string;
+}
+
+export function getRarityTierVisual(card: PokemonCardData): RarityTierVisual {
+  if (card.isCrown) {
+    return {
+      name: 'Crown Gold',
+      color: '#FFD700',
+      borderClass: 'border-yellow-400',
+      glowClass: 'shadow-[0_0_35px_rgba(255,215,0,0.85)]',
+      edgeColor: 'rgba(255, 215, 0, 0.95)',
+      suspenseAura:
+        '0 0 45px rgba(255, 215, 0, 0.9), 0 0 90px rgba(245, 158, 11, 0.7), inset 0 0 20px rgba(255, 255, 255, 0.6)',
+      textColor: 'text-yellow-400',
+      symbol: '👑',
+    };
+  }
+  if (card.isImmersive) {
+    return {
+      name: '3-Star Immersive',
+      color: '#00F5D4',
+      borderClass: 'border-cyan-400',
+      glowClass: 'shadow-[0_0_30px_rgba(0,245,212,0.8)]',
+      edgeColor: 'rgba(0, 245, 212, 0.95)',
+      suspenseAura:
+        '0 0 45px rgba(0, 245, 212, 0.85), 0 0 80px rgba(168, 85, 247, 0.6), inset 0 0 20px rgba(255, 255, 255, 0.6)',
+      textColor: 'text-cyan-400',
+      symbol: '★★★',
+    };
+  }
+  if (card.rarityRank >= 5) {
+    return {
+      name: card.rarity,
+      color: '#A855F7',
+      borderClass: 'border-purple-400',
+      glowClass: 'shadow-[0_0_28px_rgba(168,85,247,0.75)]',
+      edgeColor: 'rgba(168, 85, 247, 0.9)',
+      suspenseAura:
+        '0 0 35px rgba(168, 85, 247, 0.85), 0 0 70px rgba(236, 72, 153, 0.5), inset 0 0 15px rgba(255, 255, 255, 0.5)',
+      textColor: 'text-purple-400',
+      symbol: card.rarityRank === 6 ? '★★' : '★',
+    };
+  }
+  if (card.rarityRank === 4) {
+    return {
+      name: 'Four Diamond (ex)',
+      color: '#F43F5E',
+      borderClass: 'border-rose-400',
+      glowClass: 'shadow-[0_0_24px_rgba(244,63,94,0.75)]',
+      edgeColor: 'rgba(244, 63, 94, 0.85)',
+      suspenseAura:
+        '0 0 30px rgba(244, 63, 94, 0.8), 0 0 60px rgba(245, 158, 11, 0.5), inset 0 0 12px rgba(255, 255, 255, 0.4)',
+      textColor: 'text-rose-400',
+      symbol: '◆◆◆◆',
+    };
+  }
+  if (card.rarityRank === 3) {
+    return {
+      name: 'Three Diamond',
+      color: '#06B6D4',
+      borderClass: 'border-cyan-500',
+      glowClass: 'shadow-[0_0_18px_rgba(6,182,212,0.6)]',
+      edgeColor: 'rgba(6, 182, 212, 0.75)',
+      suspenseAura:
+        '0 0 22px rgba(6, 182, 212, 0.65), inset 0 0 10px rgba(255, 255, 255, 0.3)',
+      textColor: 'text-cyan-400',
+      symbol: '◆◆◆',
+    };
+  }
+  if (card.rarityRank === 2) {
+    return {
+      name: 'Two Diamond',
+      color: '#60A5FA',
+      borderClass: 'border-blue-400/60',
+      glowClass: 'shadow-[0_0_12px_rgba(96,165,250,0.4)]',
+      edgeColor: 'rgba(96, 165, 250, 0.6)',
+      suspenseAura: '0 0 15px rgba(96, 165, 250, 0.45)',
+      textColor: 'text-blue-300',
+      symbol: '◆◆',
+    };
+  }
+  return {
+    name: 'One Diamond',
+    color: '#94A3B8',
+    borderClass: 'border-slate-500/40',
+    glowClass: 'shadow-[0_0_8px_rgba(148,163,184,0.3)]',
+    edgeColor: 'rgba(148, 163, 184, 0.45)',
+    suspenseAura: '0 0 10px rgba(148, 163, 184, 0.35)',
+    textColor: 'text-slate-300',
+    symbol: '◆',
+  };
+}
+
 // Generate 5 cards for an opened booster pack with authentic TCG Pocket probability tiers
+// Rarest card ("Kartu Wah") is deliberately sorted to Slot 5 (the climax back slot)
 export function generateBoosterPack(packId: BoosterPackId): DrawnCard[] {
   const packName = BOOSTER_PACKS[packId].featuredPokemon;
 
   // Filter pool for this booster
-  const pool = cards.filter((c) =>
-    c.boosters.length === 0 || c.boosters.includes(packName)
+  const pool = cards.filter(
+    (c) => c.boosters.length === 0 || c.boosters.includes(packName)
   );
 
   const commons = pool.filter((c) => c.rarityRank <= 2);
@@ -104,7 +206,7 @@ export function generateBoosterPack(packId: BoosterPackId): DrawnCard[] {
       // 1-Star or 2-Star Art Rare
       const artRares = pool.filter((c) => c.rarityRank === 5 || c.rarityRank === 6);
       packCards.push(sampleOne(artRares.length > 0 ? artRares : ultraRares));
-    } else if (roll < 0.40) {
+    } else if (roll < 0.4) {
       // 4-Diamond ex
       const exRares = pool.filter((c) => c.rarityRank === 4);
       packCards.push(sampleOne(exRares.length > 0 ? exRares : rares));
@@ -112,6 +214,23 @@ export function generateBoosterPack(packId: BoosterPackId): DrawnCard[] {
       packCards.push(sampleOne(uncommons));
     }
   }
+
+  // Sort cards ascending by rarity: lowest rarity on top (Slot 1), highest "kartu wah" at the back (Slot 5)!
+  packCards.sort((a, b) => {
+    if (a.rarityRank !== b.rarityRank) {
+      return a.rarityRank - b.rarityRank;
+    }
+    if (a.isCrown !== b.isCrown) {
+      return a.isCrown ? 1 : -1;
+    }
+    if (a.isImmersive !== b.isImmersive) {
+      return a.isImmersive ? 1 : -1;
+    }
+    if (a.isHolo !== b.isHolo) {
+      return a.isHolo ? 1 : -1;
+    }
+    return 0;
+  });
 
   return packCards.map((card, slotIndex) => ({
     card,

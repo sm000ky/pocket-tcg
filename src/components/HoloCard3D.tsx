@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import type { PokemonCardData } from '../types';
 import { pocketAudio } from '../lib/audio';
+import { getRarityTierVisual } from '../lib/gacha';
 import { Sparkles, Eye, Maximize2 } from 'lucide-react';
 
 interface HoloCard3DProps {
@@ -9,10 +10,13 @@ interface HoloCard3DProps {
   onFlip?: () => void;
   onDiveIn?: () => void;
   onFlick?: (direction: 'left' | 'right') => void;
+  onDragProgress?: (deltaX: number) => void;
   interactive?: boolean;
   size?: 'sm' | 'md' | 'lg' | 'xl';
   showSuspenseGlow?: boolean;
   flickAnimation?: 'left' | 'right' | null;
+  peekOffsetX?: number; // Optional external peek offset
+  disableFlipOnTap?: boolean;
 }
 
 const POKEBALL_BACK_URL = 'https://assets.tcgdex.net/univ/tcgp/back.webp';
@@ -23,10 +27,13 @@ export const HoloCard3D: React.FC<HoloCard3DProps> = ({
   onFlip,
   onDiveIn,
   onFlick,
+  onDragProgress,
   interactive = true,
   size = 'md',
   showSuspenseGlow = false,
   flickAnimation = null,
+  peekOffsetX = 0,
+  disableFlipOnTap = false,
 }) => {
   const cardRef = useRef<HTMLDivElement>(null);
   const [rotateX, setRotateX] = useState<number>(0);
@@ -41,6 +48,8 @@ export const HoloCard3D: React.FC<HoloCard3DProps> = ({
   const isDraggingRef = useRef<boolean>(false);
   const startPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const wasFlippedRef = useRef<boolean>(isFlipped);
+
+  const rarityVisual = getRarityTierVisual(card);
 
   // Trigger sheen sweep animation on reveal
   useEffect(() => {
@@ -60,7 +69,7 @@ export const HoloCard3D: React.FC<HoloCard3DProps> = ({
     xl: 'w-72 h-[410px] sm:w-84 sm:h-[480px]',
   }[size];
 
-  // Mouse & Touch 3D tilt tracking
+  // Pointer move for 3D tilt and drag
   const handlePointerMove = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
       if (!interactive || !cardRef.current) return;
@@ -71,8 +80,9 @@ export const HoloCard3D: React.FC<HoloCard3DProps> = ({
       const percentX = (x / rect.width) * 100;
       const percentY = (y / rect.height) * 100;
 
-      const rY = ((x - rect.width / 2) / (rect.width / 2)) * 18;
-      const rX = -((y - rect.height / 2) / (rect.height / 2)) * 18;
+      // Real 3D tilt calculation (up to 20deg)
+      const rY = ((x - rect.width / 2) / (rect.width / 2)) * 20;
+      const rX = -((y - rect.height / 2) / (rect.height / 2)) * 20;
 
       setRotateX(rX);
       setRotateY(rY);
@@ -83,9 +93,10 @@ export const HoloCard3D: React.FC<HoloCard3DProps> = ({
         const dx = e.clientX - startPosRef.current.x;
         const dy = e.clientY - startPosRef.current.y;
         setDragOffset({ x: dx, y: dy });
+        onDragProgress?.(dx);
       }
     },
-    [interactive]
+    [interactive, onDragProgress]
   );
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -107,17 +118,18 @@ export const HoloCard3D: React.FC<HoloCard3DProps> = ({
     isDraggingRef.current = false;
     setIsDragging(false);
     setDragOffset({ x: 0, y: 0 });
+    onDragProgress?.(0);
 
     const dist = Math.sqrt(dx * dx + dy * dy);
 
-    // Flick gesture (if card is flipped and dragged > 65px)
-    if (isFlipped && onFlick && Math.abs(dx) > 65) {
+    // Flick gesture (if dragged > 65px)
+    if (onFlick && Math.abs(dx) > 65) {
       onFlick(dx > 0 ? 'right' : 'left');
       return;
     }
 
-    // Tap/Click to flip (if minimal drag movement)
-    if (dist < 15 && !isFlipped && onFlip) {
+    // Tap/Click to flip
+    if (dist < 15 && !isFlipped && onFlip && !disableFlipOnTap) {
       pocketAudio.playCardFlip();
       onFlip();
     }
@@ -147,8 +159,8 @@ export const HoloCard3D: React.FC<HoloCard3DProps> = ({
 
     const handleOrientation = (e: DeviceOrientationEvent) => {
       if (e.gamma !== null && e.beta !== null) {
-        const tiltX = Math.max(-20, Math.min(20, (e.beta - 45) * 0.5));
-        const tiltY = Math.max(-20, Math.min(20, e.gamma * 0.6));
+        const tiltX = Math.max(-22, Math.min(22, (e.beta - 45) * 0.55));
+        const tiltY = Math.max(-22, Math.min(22, e.gamma * 0.65));
         setRotateX(-tiltX);
         setRotateY(tiltY);
         setGlareX(50 + tiltY * 2);
@@ -160,23 +172,12 @@ export const HoloCard3D: React.FC<HoloCard3DProps> = ({
     return () => window.removeEventListener('deviceorientation', handleOrientation);
   }, [interactive]);
 
-  // Suspense glow for rare cards before reveal
-  const getSuspenseGlowClass = () => {
-    if (!showSuspenseGlow || isFlipped) return '';
-    if (card.isCrown) {
-      return 'animate-suspense-crown ring-2 ring-yellow-400';
-    }
-    if (card.isImmersive) {
-      return 'animate-suspense-immersive ring-2 ring-cyan-400';
-    }
-    if (card.rarityRank >= 4) {
-      return 'animate-suspense-rare ring-2 ring-pink-400';
-    }
-    if (card.rarityRank >= 3) {
-      return 'shadow-[0_0_25px_rgba(168,85,247,0.7)] ring-2 ring-purple-400';
-    }
-    return '';
-  };
+  // Dynamic 3D directional cast shadow based on tilt angle (gives authentic physical slab depth)
+  const shadowX = -rotateY * 1.5;
+  const shadowY = rotateX * 1.5 + 18;
+  const shadowBlur = 28 + Math.abs(rotateX) * 0.4 + Math.abs(rotateY) * 0.4;
+
+  const currentTotalX = dragOffset.x + peekOffsetX;
 
   const getFlickAnimationClass = () => {
     if (flickAnimation === 'left') return 'animate-card-flick-left pointer-events-none';
@@ -184,10 +185,15 @@ export const HoloCard3D: React.FC<HoloCard3DProps> = ({
     return '';
   };
 
+  // Suspense glow styling based on rarity
+  const suspenseStyle = showSuspenseGlow && !isFlipped ? rarityVisual.suspenseAura : undefined;
+
   return (
     <div
-      className={`relative select-none perspective-[1200px] flex items-center justify-center ${sizeClasses} ${getFlickAnimationClass()}`}
-      style={{ perspective: '1200px' }}
+      className={`relative select-none flex items-center justify-center ${sizeClasses} ${getFlickAnimationClass()}`}
+      style={{
+        perspective: '1200px',
+      }}
     >
       <div
         ref={cardRef}
@@ -196,147 +202,225 @@ export const HoloCard3D: React.FC<HoloCard3DProps> = ({
         onPointerUp={handlePointerUp}
         onPointerEnter={handlePointerEnter}
         onPointerLeave={handlePointerLeave}
-        className={`w-full h-full relative cursor-pointer rounded-2xl transition-transform duration-200 ease-out transform-gpu preserve-3d touch-none ${getSuspenseGlowClass()}`}
+        className="w-full h-full relative cursor-pointer rounded-2xl transition-transform duration-150 ease-out transform-gpu preserve-3d touch-none"
         style={{
           transformStyle: 'preserve-3d',
-          transform: `translate3d(${dragOffset.x}px, ${dragOffset.y}px, 0px) rotateZ(${
-            dragOffset.x * 0.08
+          transform: `translate3d(${currentTotalX}px, ${dragOffset.y}px, 0px) rotateZ(${
+            currentTotalX * 0.08
           }deg) rotateX(${rotateX}deg) rotateY(${
             isFlipped ? rotateY : rotateY + 180
-          }deg) ${isHovered && !isDragging ? 'scale3d(1.04, 1.04, 1.04)' : 'scale3d(1, 1, 1)'}`,
+          }deg) ${isHovered && !isDragging ? 'scale3d(1.03, 1.03, 1.03)' : 'scale3d(1, 1, 1)'}`,
+          boxShadow: suspenseStyle
+            ? `${shadowX}px ${shadowY}px ${shadowBlur}px rgba(0,0,0,0.7), ${suspenseStyle}`
+            : `${shadowX}px ${shadowY}px ${shadowBlur}px rgba(0,0,0,0.7), 0 0 0 1.5px rgba(255,255,255,0.15), inset 0 1px 2px rgba(255,255,255,0.3)`,
         }}
       >
         {/* ===================================================================
-         * FRONT SIDE (FACE UP)
+         * FRONT SIDE (FACE UP) - WITH TRUE 3D LAYERED PARALLAX
          * =================================================================== */}
         <div
-          className="absolute inset-0 w-full h-full rounded-2xl overflow-hidden backface-hidden shadow-2xl bg-neutral-900 border-2 border-neutral-700/60 flex flex-col"
-          style={{ backfaceVisibility: 'hidden' }}
+          className="absolute inset-0 w-full h-full rounded-2xl overflow-hidden backface-hidden bg-neutral-950 border border-white/20 flex flex-col preserve-3d"
+          style={{
+            backfaceVisibility: 'hidden',
+            transformStyle: 'preserve-3d',
+          }}
         >
-          {/* Card Artwork Image */}
-          <img
-            src={card.imageHigh}
-            alt={card.name}
-            loading="lazy"
-            className="w-full h-full object-cover rounded-2xl pointer-events-none"
-            onError={(e) => {
-              (e.target as HTMLImageElement).src = card.imageLow;
+          {/* Layer 0: Recessed Base Artwork Image (translateZ: 2px) */}
+          <div
+            className="absolute inset-0 w-full h-full pointer-events-none rounded-2xl overflow-hidden"
+            style={{
+              transform: 'translateZ(2px)',
+            }}
+          >
+            <img
+              src={card.imageHigh}
+              alt={card.name}
+              loading="lazy"
+              className="w-full h-full object-cover rounded-2xl"
+              onError={(e) => {
+                (e.target as HTMLImageElement).src = card.imageLow;
+              }}
+            />
+          </div>
+
+          {/* Layer 1: Beveled 3D Inner Rim Highlight (translateZ: 12px) */}
+          <div
+            className="absolute inset-0 rounded-2xl pointer-events-none border border-white/30"
+            style={{
+              transform: 'translateZ(12px)',
+              boxShadow: 'inset 0 0 15px rgba(0,0,0,0.5)',
             }}
           />
 
-          {/* Holographic Prismatic Foil Shader */}
+          {/* Layer 2: Holographic Prismatic Foil Shader (translateZ: 22px) */}
           {card.isHolo && (
             <div
               className="absolute inset-0 pointer-events-none mix-blend-color-dodge transition-opacity duration-200 rounded-2xl"
               style={{
-                opacity: isHovered ? 0.9 : 0.45,
+                transform: 'translateZ(22px)',
+                opacity: isHovered ? 0.92 : 0.5,
                 background: `linear-gradient(${
-                  115 + rotateY * 2
-                }deg, rgba(255,0,0,0.4) 0%, rgba(255,154,0,0.4) 15%, rgba(208,222,33,0.4) 30%, rgba(79,220,74,0.4) 45%, rgba(63,218,216,0.4) 60%, rgba(47,201,226,0.4) 75%, rgba(28,127,238,0.4) 85%, rgba(95,21,242,0.4) 95%)`,
+                  115 + rotateY * 2.2 + rotateX
+                }deg, rgba(255,0,0,0.45) 0%, rgba(255,154,0,0.45) 15%, rgba(208,222,33,0.45) 30%, rgba(79,220,74,0.45) 45%, rgba(63,218,216,0.45) 60%, rgba(47,201,226,0.45) 75%, rgba(28,127,238,0.45) 85%, rgba(95,21,242,0.45) 95%)`,
               }}
             />
           )}
 
-          {/* Specular Glare Dot Layer */}
-          <div
-            className="absolute inset-0 pointer-events-none mix-blend-overlay transition-opacity duration-150 rounded-2xl"
-            style={{
-              opacity: isHovered ? 0.8 : 0.25,
-              background: `radial-gradient(circle at ${glareX}% ${glareY}%, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0.15) 35%, transparent 65%)`,
-            }}
-          />
-
-          {/* Crown Gold Foil Texture */}
+          {/* Layer 3: Crown Gold Specular Texture (translateZ: 24px) */}
           {card.isCrown && (
             <div
               className="absolute inset-0 pointer-events-none mix-blend-soft-light rounded-2xl"
               style={{
+                transform: 'translateZ(24px)',
                 background: `linear-gradient(${
-                  45 + rotateX * 3
-                }deg, rgba(255,215,0,0.65) 0%, rgba(255,248,220,0.85) 50%, rgba(184,134,11,0.65) 100%)`,
+                  45 + rotateX * 3 + rotateY * 2
+                }deg, rgba(255,215,0,0.7) 0%, rgba(255,248,220,0.9) 50%, rgba(184,134,11,0.7) 100%)`,
               }}
             />
           )}
 
-          {/* Reveal Flash Sheen Sweep Animation */}
+          {/* Layer 4: Specular Glare Dot Flare (translateZ: 30px) */}
+          <div
+            className="absolute inset-0 pointer-events-none mix-blend-overlay transition-opacity duration-150 rounded-2xl"
+            style={{
+              transform: 'translateZ(30px)',
+              opacity: isHovered ? 0.85 : 0.35,
+              background: `radial-gradient(circle at ${glareX}% ${glareY}%, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.2) 35%, transparent 65%)`,
+            }}
+          />
+
+          {/* Layer 5: Reveal Flash Sheen Sweep Animation */}
           {justRevealed && (
-            <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-2xl z-30">
+            <div
+              className="absolute inset-0 pointer-events-none overflow-hidden rounded-2xl z-30"
+              style={{ transform: 'translateZ(34px)' }}
+            >
               <div
-                className="w-[200%] h-full bg-gradient-to-r from-transparent via-white/85 to-transparent animate-sheen-sweep"
+                className="w-[200%] h-full bg-gradient-to-r from-transparent via-white/90 to-transparent animate-sheen-sweep"
                 style={{
-                  boxShadow: '0 0 40px rgba(255,255,255,0.9)',
+                  boxShadow: '0 0 50px rgba(255,255,255,0.95)',
                 }}
               />
             </div>
           )}
 
-          {/* Immersive Badge & "Dive In" Button */}
+          {/* Layer 6: Floating 3D Metadata Badges (translateZ: 38px) */}
+          <div
+            className="absolute top-2.5 right-2.5 z-20 pointer-events-none"
+            style={{
+              transform: 'translateZ(38px)',
+              filter: 'drop-shadow(0 3px 6px rgba(0,0,0,0.75))',
+            }}
+          >
+            <div className="px-2.5 py-1 rounded-lg bg-black/80 backdrop-blur-md border border-white/30 text-[10px] font-mono font-bold text-white flex items-center gap-1.5">
+              {card.isCrown ? (
+                <span className="text-yellow-400 font-extrabold flex items-center gap-1">
+                  <Sparkles className="w-3.5 h-3.5 fill-current" /> CROWN GOLD
+                </span>
+              ) : card.isImmersive ? (
+                <span className="text-cyan-300 font-extrabold flex items-center gap-1">
+                  ★★★ IMMERSIVE
+                </span>
+              ) : card.rarityRank >= 4 ? (
+                <span className="text-rose-300 font-black tracking-wider">
+                  ★ {card.rarity.toUpperCase()}
+                </span>
+              ) : (
+                <span className="text-neutral-200">{card.rarity}</span>
+              )}
+            </div>
+          </div>
+
+          {/* Layer 7: Floating "DIVE IN" Button for Immersive Cards (translateZ: 44px) */}
           {card.isImmersive && onDiveIn && (
-            <div className="absolute bottom-3 left-3 right-3 flex items-center justify-center z-20">
+            <div
+              className="absolute bottom-3.5 left-3.5 right-3.5 flex items-center justify-center z-30"
+              style={{
+                transform: 'translateZ(44px)',
+                filter: 'drop-shadow(0 4px 10px rgba(0,0,0,0.85))',
+              }}
+            >
               <button
                 onClick={(e) => {
                   e.stopPropagation();
                   onDiveIn();
                 }}
-                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-black/85 backdrop-blur-md border border-cyan-400 text-cyan-300 text-xs font-mono font-bold tracking-wider hover:bg-cyan-500 hover:text-black transition-all shadow-[0_0_15px_rgba(56,189,248,0.6)] cursor-pointer"
+                className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-full bg-gradient-to-r from-cyan-500 via-teal-400 to-cyan-500 text-black text-xs font-mono font-black tracking-wider hover:brightness-110 transition-all shadow-[0_0_20px_rgba(6,182,212,0.7)] cursor-pointer active:scale-95"
               >
-                <Maximize2 className="w-3.5 h-3.5" />
-                <span>DIVE IN (IMMERSIVE)</span>
+                <Maximize2 className="w-3.5 h-3.5 stroke-[2.5]" />
+                <span>DIVE IN (IMMERSIVE REALM)</span>
               </button>
             </div>
           )}
-
-          {/* Rarity & Card Info Badge (Top Right) */}
-          <div className="absolute top-2 right-2 px-2 py-0.5 rounded-md bg-black/75 backdrop-blur-sm border border-white/20 text-[10px] font-mono font-bold text-white flex items-center gap-1 z-10">
-            {card.isCrown ? (
-              <span className="text-yellow-400 font-extrabold flex items-center gap-0.5">
-                <Sparkles className="w-3 h-3" /> CROWN
-              </span>
-            ) : card.isImmersive ? (
-              <span className="text-cyan-400 font-extrabold flex items-center gap-0.5">
-                ★★★ IMMERSIVE
-              </span>
-            ) : card.rarityRank >= 4 ? (
-              <span className="text-amber-300 font-bold">ex</span>
-            ) : (
-              <span className="opacity-80">{card.rarity}</span>
-            )}
-          </div>
         </div>
 
         {/* ===================================================================
-         * BACK SIDE (FACE DOWN)
+         * BACK SIDE (FACE DOWN) - AUTHENTIC 3D POKÉBALL EMBOSS
          * =================================================================== */}
         <div
-          className="absolute inset-0 w-full h-full rounded-2xl overflow-hidden backface-hidden shadow-2xl bg-[#0c1220] border-2 border-neutral-700/80 flex items-center justify-center"
+          className="absolute inset-0 w-full h-full rounded-2xl overflow-hidden backface-hidden bg-[#0c1220] border-2 border-white/20 flex items-center justify-center preserve-3d"
           style={{
             backfaceVisibility: 'hidden',
             transform: 'rotateY(180deg)',
+            transformStyle: 'preserve-3d',
           }}
         >
-          <img
-            src={POKEBALL_BACK_URL}
-            alt="Pokémon Card Back"
-            className="w-full h-full object-cover rounded-2xl pointer-events-none"
-            onError={(e) => {
-              (e.target as HTMLImageElement).style.display = 'none';
-            }}
-          />
+          {/* Card Back Base Image (translateZ: 2px) */}
+          <div
+            className="absolute inset-0 w-full h-full"
+            style={{ transform: 'translateZ(2px)' }}
+          >
+            <img
+              src={POKEBALL_BACK_URL}
+              alt="Pokémon Card Back"
+              className="w-full h-full object-cover rounded-2xl pointer-events-none"
+              onError={(e) => {
+                (e.target as HTMLImageElement).style.display = 'none';
+              }}
+            />
+          </div>
 
-          {/* Back Specular Sheen */}
+          {/* Back Specular Light Gleam (translateZ: 18px) */}
           <div
             className="absolute inset-0 pointer-events-none mix-blend-overlay rounded-2xl"
             style={{
-              background: `radial-gradient(circle at ${100 - glareX}% ${glareY}%, rgba(255,255,255,0.4) 0%, transparent 60%)`,
+              transform: 'translateZ(18px)',
+              background: `radial-gradient(circle at ${100 - glareX}% ${glareY}%, rgba(255,255,255,0.45) 0%, transparent 60%)`,
             }}
           />
 
-          <div className="absolute inset-0 flex flex-col items-center justify-center p-4 text-center">
-            <div className="w-16 h-16 rounded-full border-4 border-amber-400/60 bg-black/40 flex items-center justify-center shadow-inner">
-              <Eye className="w-6 h-6 text-amber-300 opacity-80" />
+          {/* Rarity Silhouette Glow on Card Edge when Face Down */}
+          <div
+            className="absolute inset-0 rounded-2xl pointer-events-none border-2 transition-all duration-200"
+            style={{
+              transform: 'translateZ(24px)',
+              borderColor: rarityVisual.edgeColor,
+              boxShadow: `inset 0 0 20px ${rarityVisual.edgeColor}`,
+            }}
+          />
+
+          {/* Floating Tap/Peel Prompt (translateZ: 32px) */}
+          <div
+            className="absolute inset-0 flex flex-col items-center justify-center p-4 text-center pointer-events-none"
+            style={{
+              transform: 'translateZ(32px)',
+              filter: 'drop-shadow(0 4px 8px rgba(0,0,0,0.8))',
+            }}
+          >
+            <div
+              className="w-14 h-14 rounded-full border-2 bg-black/60 backdrop-blur-md flex items-center justify-center shadow-lg"
+              style={{
+                borderColor: rarityVisual.color,
+                boxShadow: `0 0 18px ${rarityVisual.edgeColor}`,
+              }}
+            >
+              <Eye className="w-6 h-6" style={{ color: rarityVisual.color }} />
             </div>
-            <span className="mt-3 text-[11px] font-mono tracking-widest text-amber-200/90 uppercase font-bold">
-              TAP OR FLICK TO REVEAL
+            <span
+              className="mt-3 px-3 py-1 rounded-full bg-black/75 backdrop-blur-md border border-white/20 text-[10px] font-mono tracking-widest uppercase font-black"
+              style={{ color: rarityVisual.color }}
+            >
+              TAP TO REVEAL
             </span>
           </div>
         </div>
